@@ -11,9 +11,16 @@ public class ChessGame {
     private ChessBoard board;
     private boolean whiteTurn = true; // White starts the game
     private boolean checkDisplayed = false; // Pour éviter de montrer le popup à chaque clic
+    private Position selectedPosition;
+    private Historique historique;
 
     public ChessGame() {
         this.board = new ChessBoard();
+        this.historique = new Historique();
+    }
+
+    public Historique getHistorique() {
+        return this.historique;
     }
 
     public ChessBoard getBoard() {
@@ -24,13 +31,13 @@ public class ChessGame {
         this.board = new ChessBoard();
         this.whiteTurn = true;
         this.checkDisplayed = false;
+        this.historique = new Historique();
     }
 
     public PieceColor getCurrentPlayerColor() {
         return whiteTurn ? PieceColor.WHITE : PieceColor.BLACK;
     }
 
-    private Position selectedPosition;
 
     public boolean isPieceSelected() {
         return selectedPosition != null;
@@ -38,15 +45,25 @@ public class ChessGame {
 
     public boolean handleSquareSelection(int row, int col) {
         if (selectedPosition == null) {
+            // Première sélection - vérifier si la case contient une pièce et si c'est au tour du joueur
             Piece selectedPiece = board.getPiece(row, col);
             if (selectedPiece != null
                     && selectedPiece.getColor() == (whiteTurn ? PieceColor.WHITE : PieceColor.BLACK)) {
                 selectedPosition = new Position(row, col);
-                return false;
+                return false; // Pas encore de mouvement effectué, juste une sélection
             }
         } else {
+            // Deuxième sélection - tenter de déplacer la pièce
             Position targetPosition = new Position(row, col);
             Piece selectedPiece = board.getPiece(selectedPosition.getRow(), selectedPosition.getColumn());
+
+            // Vérifier si la case cible contient une pièce du même joueur
+            Piece targetPiece = board.getPiece(row, col);
+            if (targetPiece != null && targetPiece.getColor() == selectedPiece.getColor()) {
+                // Le joueur sélectionne une autre de ses pièces, donc changer la sélection
+                selectedPosition = new Position(row, col);
+                return false;
+            }
 
             // D'abord, vérifier si le roi actuel est en échec
             PieceColor currentColor = selectedPiece.getColor();
@@ -68,31 +85,39 @@ public class ChessGame {
                 }
 
                 // Exécuter le mouvement
-                boolean moveMade = makeMove(selectedPosition, targetPosition);
+                board.movePiece(selectedPosition, targetPosition);
+
+                // Vérifier si un pion doit être promu
+                checkPawnPromotion(targetPosition);
+
+                // Changer de tour
+                whiteTurn = !whiteTurn;
+
+                // Reset la position sélectionnée
+                selectedPosition = null;
 
                 // Après le mouvement, vérifier si l'adversaire est en échec
-                if (moveMade) {
-                    PieceColor opponentColor = whiteTurn ? PieceColor.BLACK : PieceColor.WHITE;
+                PieceColor opponentColor = currentColor == PieceColor.WHITE ? PieceColor.BLACK : PieceColor.WHITE;
 
-                    // Vérifier échec
-                    if (isInCheck(opponentColor)) {
-                        checkDisplayed = true;
-                        VueAlerte.afficherEchec();
+                // Vérifier échec
+                if (isInCheck(opponentColor)) {
+                    checkDisplayed = true;
+                    VueAlerte.afficherEchec();
 
-                        // Vérifier échec et mat
-                        if (isCheckmate(opponentColor)) {
-                            String gagnant = whiteTurn ? "blancs" : "noirs";
-                            VueAlerte.afficherEchecEtMat(gagnant);
-                        }
-                    } else {
-                        checkDisplayed = false;
+                    // Vérifier échec et mat
+                    if (isCheckmate(opponentColor)) {
+                        String gagnant = currentColor == PieceColor.WHITE ? "blancs" : "noirs";
+                        VueAlerte.afficherEchecEtMat(gagnant);
                     }
+                } else {
+                    checkDisplayed = false;
                 }
 
-                selectedPosition = null;
-                return moveMade;
+                return true; // Mouvement effectué avec succès
             } else {
+                // Mouvement invalide
                 selectedPosition = null;
+                return false;
             }
         }
         return false;

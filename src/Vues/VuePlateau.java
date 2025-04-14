@@ -30,6 +30,11 @@ public class VuePlateau extends BorderPane {
     private Canvas boardCanvas;
     private GraphicsContext gc;
 
+    private Position selectedSquare;
+    private Position lastMoveFrom;
+    private Position lastMoveTo;
+
+
     // Maps pour stocker les images des pièces
     private Map<String, Image> pieceImages;
 
@@ -111,21 +116,36 @@ public class VuePlateau extends BorderPane {
     private void drawBoard() {
         ChessBoard board = game.getBoard();
 
-        // Dessin des cases de l'échiquier
+        // Dessin des cases de l'échiquier avec un vert moins foncé
         for (int row = 0; row < 8; row++) {
             for (int col = 0; col < 8; col++) {
                 if ((row + col) % 2 == 0) {
                     gc.setFill(Color.BEIGE);
                 } else {
-                    gc.setFill(Color.DARKGREEN);
+                    gc.setFill(Color.rgb(76, 153, 76)); // Vert moins foncé
                 }
                 gc.fillRect(col * SQUARE_SIZE, row * SQUARE_SIZE, SQUARE_SIZE, SQUARE_SIZE);
+
+                // Surligner la dernière case de départ et d'arrivée
+                if (lastMoveFrom != null && lastMoveTo != null) {
+                    if ((row == lastMoveFrom.getRow() && col == lastMoveFrom.getColumn()) ||
+                            (row == lastMoveTo.getRow() && col == lastMoveTo.getColumn())) {
+                        gc.setFill(Color.rgb(255, 255, 153, 0.7)); // Jaune clair
+                        gc.fillRect(col * SQUARE_SIZE, row * SQUARE_SIZE, SQUARE_SIZE, SQUARE_SIZE);
+                    }
+                }
+
+                // Surligner la case actuellement sélectionnée
+                if (selectedSquare != null && row == selectedSquare.getRow() && col == selectedSquare.getColumn()) {
+                    gc.setFill(Color.rgb(255, 255, 153, 0.7)); // Jaune clair
+                    gc.fillRect(col * SQUARE_SIZE, row * SQUARE_SIZE, SQUARE_SIZE, SQUARE_SIZE);
+                }
 
                 // Affichage des positions légales si une pièce est sélectionnée
                 if (legalMoves != null) {
                     for (Position pos : legalMoves) {
                         if (pos.getRow() == row && pos.getColumn() == col) {
-                            gc.setFill(Color.rgb(255, 255, 0, 0.5)); // Jaune semi-transparent
+                            gc.setFill(Color.rgb(50, 50, 50, 0.5)); // Noir clair semi-transparent
                             gc.fillOval(col * SQUARE_SIZE + SQUARE_SIZE / 3,
                                     row * SQUARE_SIZE + SQUARE_SIZE / 3,
                                     SQUARE_SIZE / 3, SQUARE_SIZE / 3);
@@ -223,23 +243,100 @@ public class VuePlateau extends BorderPane {
         int row = (int) (event.getY() / SQUARE_SIZE);
 
         if (col >= 0 && col < 8 && row >= 0 && row < 8) {
-            boolean moveMade = game.handleSquareSelection(row, col);
+            Position clickedPos = new Position(row, col);
 
-            // Si une pièce est sélectionnée, afficher les mouvements légaux
-            if (game.isPieceSelected()) {
-                Position selectedPos = new Position(row, col);
-                legalMoves = game.getLegalMovesForPieceAt(selectedPos);
-            } else {
-                legalMoves = null;
+            // Si une pièce est déjà sélectionnée
+            if (selectedSquare != null) {
+                // Tenter de déplacer la pièce
+                boolean moveMade = game.handleSquareSelection(row, col);
+
+                if (moveMade) {
+                    // Le mouvement a été effectué
+                    lastMoveFrom = selectedSquare;
+                    lastMoveTo = clickedPos;
+
+                    // Enregistrer le coup dans l'historique
+                    game.getHistorique().ajouterCoup(selectedSquare, clickedPos,
+                            game.getBoard().getPiece(clickedPos.getRow(), clickedPos.getColumn()));
+
+                    // Mettre à jour la vue de l'historique
+                    fireEvent(new MoveEvent(selectedSquare, clickedPos));
+
+                    // Réinitialiser la sélection
+                    selectedSquare = null;
+                    legalMoves = null;
+
+                    // Mettre à jour le statut
+                    updateStatus();
+                } else {
+                    // Si le mouvement n'est pas valide, vérifier si on clique sur une autre pièce amie
+                    Piece clickedPiece = game.getBoard().getPiece(row, col);
+                    if (clickedPiece != null &&
+                            clickedPiece.getColor() == game.getCurrentPlayerColor()) {
+                        // Sélectionner la nouvelle pièce
+                        selectedSquare = clickedPos;
+                        legalMoves = game.getLegalMovesForPieceAt(selectedSquare);
+                    } else {
+                        // Clic invalide, réinitialiser la sélection
+                        selectedSquare = null;
+                        legalMoves = null;
+                    }
+                }
             }
+            // Si aucune pièce n'est sélectionnée
+            else {
+                Piece clickedPiece = game.getBoard().getPiece(row, col);
 
-            // Si un mouvement a été effectué, mettre à jour le statut
-            if (moveMade) {
-                updateStatus();
+                // Vérifier si la case contient une pièce et si elle appartient au joueur actuel
+                if (clickedPiece != null &&
+                        clickedPiece.getColor() == game.getCurrentPlayerColor()) {
+                    // Sélectionner la pièce
+                    selectedSquare = clickedPos;
+                    legalMoves = game.getLegalMovesForPieceAt(selectedSquare);
+
+                    // Utiliser handleSquareSelection pour mettre à jour l'état du jeu
+                    game.handleSquareSelection(row, col);
+                }
             }
 
             // Redessiner le plateau
             drawBoard();
         }
     }
+
+    public void resetLastMove() {
+        lastMoveFrom = null;
+        lastMoveTo = null;
+        drawBoard();
+    }
+
+    public static class MoveEvent extends javafx.event.Event {
+        public static final javafx.event.EventType<MoveEvent> MOVE_MADE =
+                new javafx.event.EventType<>(javafx.event.Event.ANY, "MOVE_MADE");
+
+        private Position from;
+        private Position to;
+
+        public MoveEvent(Position from, Position to) {
+            super(MOVE_MADE);
+            this.from = from;
+            this.to = to;
+        }
+
+        public Position getFrom() {
+            return from;
+        }
+
+        public Position getTo() {
+            return to;
+        }
+    }
+
+    public void afficherEtatHistorique(Position from, Position to) {
+        // Surligner les cases du coup
+        lastMoveFrom = from;
+        lastMoveTo = to;
+        drawBoard();
+    }
+
 }

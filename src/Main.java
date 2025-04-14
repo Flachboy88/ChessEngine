@@ -1,4 +1,5 @@
 import Plateau.ChessGame;
+import Vues.VueHistorique;
 import Vues.VueOutils;
 import Vues.VuePlateau;
 import javafx.application.Application;
@@ -22,6 +23,8 @@ public class Main extends Application {
         // Création des vues
         VueOutils vueOutils = new VueOutils(game);
         vuePlateau = new VuePlateau(game);
+        VueHistorique vueHistorique = new VueHistorique(game, vuePlateau);
+
 
         // Gestion de l'événement de réinitialisation
         vueOutils.addEventHandler(VueOutils.GameResetEvent.RESET, e -> vuePlateau.update());
@@ -29,9 +32,10 @@ public class Main extends Application {
         // Placement des vues dans le conteneur
         root.setTop(vueOutils);
         root.setCenter(vuePlateau);
+        root.setRight(vueHistorique);
 
         // Création de la scène
-        Scene scene = new Scene(root, 800, 850);
+        Scene scene = new Scene(root, 850, 850);
 
         // Configuration de la fenêtre
         primaryStage.setTitle("Jeu d'Échecs");
