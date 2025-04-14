@@ -1,14 +1,16 @@
 package Plateau;
 
 import Pieces.*;
+import Vues.*;
 
 import java.util.ArrayList;
 import java.util.List;
-
+import Vues.VuePromotion;
 
 public class ChessGame {
     private ChessBoard board;
     private boolean whiteTurn = true; // White starts the game
+    private boolean checkDisplayed = false; // Pour éviter de montrer le popup à chaque clic
 
     public ChessGame() {
         this.board = new ChessBoard();
@@ -21,6 +23,7 @@ public class ChessGame {
     public void resetGame() {
         this.board = new ChessBoard();
         this.whiteTurn = true;
+        this.checkDisplayed = false;
     }
 
     public PieceColor getCurrentPlayerColor() {
@@ -42,9 +45,55 @@ public class ChessGame {
                 return false;
             }
         } else {
-            boolean moveMade = makeMove(selectedPosition, new Position(row, col));
-            selectedPosition = null;
-            return moveMade;
+            Position targetPosition = new Position(row, col);
+            Piece selectedPiece = board.getPiece(selectedPosition.getRow(), selectedPosition.getColumn());
+
+            // D'abord, vérifier si le roi actuel est en échec
+            PieceColor currentColor = selectedPiece.getColor();
+            boolean kingInCheck = isInCheck(currentColor);
+
+            // Vérifier si le mouvement est valide selon les règles de la pièce
+            if (selectedPiece != null && selectedPiece.isValidMove(targetPosition, board.getBoard())) {
+                // Vérifier si ce mouvement mettrait notre propre roi en échec
+                if (wouldBeInCheckAfterMove(selectedPiece.getColor(), selectedPosition, targetPosition)) {
+                    if (kingInCheck) {
+                        // Le roi est déjà en échec, message spécifique
+                        VueAlerte.afficherRoiEnDanger();
+                    } else {
+                        // Ce mouvement mettrait le roi en échec
+                        VueAlerte.afficherMouvementImpossible();
+                    }
+                    selectedPosition = null;
+                    return false;
+                }
+
+                // Exécuter le mouvement
+                boolean moveMade = makeMove(selectedPosition, targetPosition);
+
+                // Après le mouvement, vérifier si l'adversaire est en échec
+                if (moveMade) {
+                    PieceColor opponentColor = whiteTurn ? PieceColor.BLACK : PieceColor.WHITE;
+
+                    // Vérifier échec
+                    if (isInCheck(opponentColor)) {
+                        checkDisplayed = true;
+                        VueAlerte.afficherEchec();
+
+                        // Vérifier échec et mat
+                        if (isCheckmate(opponentColor)) {
+                            String gagnant = whiteTurn ? "blancs" : "noirs";
+                            VueAlerte.afficherEchecEtMat(gagnant);
+                        }
+                    } else {
+                        checkDisplayed = false;
+                    }
+                }
+
+                selectedPosition = null;
+                return moveMade;
+            } else {
+                selectedPosition = null;
+            }
         }
         return false;
     }
@@ -57,11 +106,16 @@ public class ChessGame {
 
         if (movingPiece.isValidMove(end, board.getBoard())) {
             board.movePiece(start, end);
+
+            // Vérifier si un pion doit être promu
+            checkPawnPromotion(end);
+
             whiteTurn = !whiteTurn;
             return true;
         }
         return false;
     }
+
 
     public boolean isInCheck(PieceColor kingColor) {
         Position kingPosition = findKingPosition(kingColor);
@@ -95,24 +149,22 @@ public class ChessGame {
             return false;
         }
 
-        Position kingPosition = findKingPosition(kingColor);
-        King king = (King) board.getPiece(kingPosition.getRow(), kingPosition.getColumn());
-
-        for (int rowOffset = -1; rowOffset <= 1; rowOffset++) {
-            for (int colOffset = -1; colOffset <= 1; colOffset++) {
-                if (rowOffset == 0 && colOffset == 0) {
-                    continue;
-                }
-                Position newPosition = new Position(kingPosition.getRow() + rowOffset,
-                        kingPosition.getColumn() + colOffset);
-
-                if (isPositionOnBoard(newPosition) && king.isValidMove(newPosition, board.getBoard())
-                        && !wouldBeInCheckAfterMove(kingColor, kingPosition, newPosition)) {
-                    return false;
+        // Vérifier tous les mouvements possibles pour chaque pièce
+        for (int row = 0; row < board.getBoard().length; row++) {
+            for (int col = 0; col < board.getBoard()[row].length; col++) {
+                Piece piece = board.getPiece(row, col);
+                if (piece != null && piece.getColor() == kingColor) {
+                    // Vérifier tous les mouvements légaux pour cette pièce
+                    List<Position> legalMoves = getLegalMovesForPieceAt(new Position(row, col));
+                    for (Position move : legalMoves) {
+                        if (!wouldBeInCheckAfterMove(kingColor, new Position(row, col), move)) {
+                            return false; // Il existe un mouvement qui annule l'échec
+                        }
+                    }
                 }
             }
         }
-        return true;
+        return true; // Aucun mouvement ne peut annuler l'échec => échec et mat
     }
 
     private boolean isPositionOnBoard(Position position) {
@@ -120,17 +172,113 @@ public class ChessGame {
                 position.getColumn() >= 0 && position.getColumn() < board.getBoard()[0].length;
     }
 
-    private boolean wouldBeInCheckAfterMove(PieceColor kingColor, Position from, Position to) {
-        Piece temp = board.getPiece(to.getRow(), to.getColumn());
-        board.setPiece(to.getRow(), to.getColumn(), board.getPiece(from.getRow(), from.getColumn()));
+    public boolean wouldBeInCheckAfterMove(PieceColor kingColor, Position from, Position to) {
+        // Sauvegarde de la position du roi avant simulation
+        Position kingPosition = null;
+        if (board.getPiece(from.getRow(), from.getColumn()) instanceof King) {
+            kingPosition = from;
+        } else {
+            kingPosition = findKingPosition(kingColor);
+        }
+
+        // Sauvegarde de l'état actuel
+        Piece movingPiece = board.getPiece(from.getRow(), from.getColumn());
+        Piece targetPiece = board.getPiece(to.getRow(), to.getColumn());
+        Position originalPosition = null;
+
+        if (movingPiece != null) {
+            originalPosition = movingPiece.getPosition(); // Sauvegarde de la position originale
+        }
+
+        // Simulation du mouvement
+        board.setPiece(to.getRow(), to.getColumn(), movingPiece);
         board.setPiece(from.getRow(), from.getColumn(), null);
 
-        boolean inCheck = isInCheck(kingColor);
+        // Mettre à jour temporairement la position de la pièce déplacée
+        if (movingPiece != null) {
+            movingPiece.setPosition(to);
+        }
 
-        board.setPiece(from.getRow(), from.getColumn(), board.getPiece(to.getRow(), to.getColumn()));
-        board.setPiece(to.getRow(), to.getColumn(), temp);
+        // Cas spécial pour le roque (déplacement de la tour)
+        boolean isKingCastling = movingPiece instanceof King && ((King) movingPiece).isCastling(to);
+        Position rookFrom = null;
+        Position rookTo = null;
+        Piece rook = null;
+        Position originalRookPosition = null;
+
+        if (isKingCastling) {
+            King king = (King) movingPiece;
+            rookFrom = king.getRookCastlingSource(to);  // Modifié pour passer la destination du roi
+            rookTo = king.getRookCastlingDestination(to);
+            rook = board.getPiece(rookFrom.getRow(), rookFrom.getColumn());
+
+            if (rook != null) {
+                originalRookPosition = rook.getPosition(); // Sauvegarde de la position originale
+
+                // Déplacer la tour pour la simulation
+                board.setPiece(rookTo.getRow(), rookTo.getColumn(), rook);
+                board.setPiece(rookFrom.getRow(), rookFrom.getColumn(), null);
+
+                // Mettre à jour temporairement la position de la tour
+                rook.setPosition(rookTo);
+            }
+        }
+
+        // Vérification de l'échec après le mouvement simulé
+        boolean inCheck = false;
+        // Vérifier si une pièce adverse peut atteindre le roi
+        Position currentKingPosition = movingPiece instanceof King ? to : findKingPosition(kingColor);
+
+        for (int row = 0; row < board.getBoard().length; row++) {
+            for (int col = 0; col < board.getBoard()[row].length; col++) {
+                Piece piece = board.getPiece(row, col);
+                if (piece != null && piece.getColor() != kingColor) {
+                    if (piece.isValidMove(currentKingPosition, board.getBoard())) {
+                        inCheck = true;
+                        break;
+                    }
+                }
+            }
+            if (inCheck) break;
+        }
+
+        // Restauration de l'état initial
+        board.setPiece(from.getRow(), from.getColumn(), movingPiece);
+        board.setPiece(to.getRow(), to.getColumn(), targetPiece);
+
+        // Restaurer la position originale de la pièce
+        if (movingPiece != null && originalPosition != null) {
+            movingPiece.setPosition(originalPosition);
+        }
+
+        // Restaurer la tour si c'était un roque
+        if (isKingCastling && rook != null) {
+            board.setPiece(rookFrom.getRow(), rookFrom.getColumn(), rook);
+            board.setPiece(rookTo.getRow(), rookTo.getColumn(), null);
+
+            // Restaurer la position originale de la tour
+            if (originalRookPosition != null) {
+                rook.setPosition(originalRookPosition);
+            }
+        }
 
         return inCheck;
+    }
+
+    private void checkPawnPromotion(Position position) {
+        Piece piece = board.getPiece(position.getRow(), position.getColumn());
+        if (piece instanceof Pawn) {
+            // Un pion atteint la dernière rangée
+            if ((piece.getColor() == PieceColor.WHITE && position.getRow() == 0) ||
+                    (piece.getColor() == PieceColor.BLACK && position.getRow() == 7)) {
+
+                // Demander à l'utilisateur quelle pièce il veut
+                String promotionType = VuePromotion.afficherChoixPromotion(piece.getColor());
+
+                // Promouvoir le pion
+                board.promotePawn(position, promotionType);
+            }
+        }
     }
 
     public List<Position> getLegalMovesForPieceAt(Position position) {
@@ -160,9 +308,61 @@ public class ChessGame {
             case "King":
                 addSingleMoves(position, new int[][] { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 }, { 1, 1 }, { -1, -1 },
                         { 1, -1 }, { -1, 1 } }, legalMoves);
+                King king = (King) selectedPiece;
+                // Ajouter les mouvements de roque si le roi n'a pas bougé et n'est pas en échec
+                if (!king.hasMoved() && !isInCheck(king.getColor())) {
+                    addCastlingMoves(position, king.getColor(), legalMoves);
+                }
                 break;
         }
         return legalMoves;
+    }
+
+    private void addCastlingMoves(Position kingPosition, PieceColor color, List<Position> legalMoves) {
+        int row = kingPosition.getRow();
+        int col = kingPosition.getColumn();
+
+        // Petit roque (côté roi)
+        if (canCastle(row, col, row, col + 2, true)) {
+            legalMoves.add(new Position(row, col + 2));
+        }
+
+        // Grand roque (côté dame)
+        if (canCastle(row, col, row, col - 2, false)) {
+            legalMoves.add(new Position(row, col - 2));
+        }
+    }
+
+    private boolean canCastle(int kingRow, int kingCol, int targetRow, int targetCol, boolean kingSide) {
+        // Vérifier que le roi n'a pas bougé
+        Piece king = board.getPiece(kingRow, kingCol);
+        if (king == null || !(king instanceof King) || king.hasMoved()) {
+            return false;
+        }
+
+        // Vérifier que la tour n'a pas bougé
+        int rookCol = kingSide ? 7 : 0;
+        Piece rook = board.getPiece(kingRow, rookCol);
+        if (rook == null || !(rook instanceof Rook) || rook.hasMoved()) {
+            return false;
+        }
+
+        // Vérifier que les cases entre le roi et la tour sont vides
+        int step = kingSide ? 1 : -1;
+        for (int c = kingCol + step; kingSide ? (c < rookCol) : (c > rookCol); c += step) {
+            if (board.getPiece(kingRow, c) != null) {
+                return false;
+            }
+        }
+
+        // Vérifier que le roi ne traverse pas une case en échec
+        for (int c = kingCol; kingSide ? (c <= kingCol + 1) : (c >= kingCol - 1); c += step) {
+            if (wouldBeInCheckAfterMove(king.getColor(), new Position(kingRow, kingCol), new Position(kingRow, c))) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private void addLineMoves(Position position, int[][] directions, List<Position> legalMoves) {
@@ -213,10 +413,25 @@ public class ChessGame {
 
         int[] captureCols = { position.getColumn() - 1, position.getColumn() + 1 };
         for (int col : captureCols) {
+            // Capture normale diagonale
             newPos = new Position(position.getRow() + direction, col);
             if (isPositionOnBoard(newPos) && board.getPiece(newPos.getRow(), newPos.getColumn()) != null &&
                     board.getPiece(newPos.getRow(), newPos.getColumn()).getColor() != color) {
                 legalMoves.add(newPos);
+            }
+
+            // En passant
+            if (isPositionOnBoard(newPos) && board.getPiece(newPos.getRow(), newPos.getColumn()) == null) {
+                Position adjacentPos = new Position(position.getRow(), col);
+                if (isPositionOnBoard(adjacentPos) && board.getPiece(adjacentPos.getRow(), adjacentPos.getColumn()) != null) {
+                    Piece adjacentPiece = board.getPiece(adjacentPos.getRow(), adjacentPos.getColumn());
+                    if (adjacentPiece instanceof Pawn && adjacentPiece.getColor() != color) {
+                        Pawn opponentPawn = (Pawn) adjacentPiece;
+                        if (opponentPawn.isJustMadeDoubleMove()) {
+                            legalMoves.add(newPos);
+                        }
+                    }
+                }
             }
         }
     }

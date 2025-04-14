@@ -4,10 +4,12 @@ public abstract class Piece {
 
     protected Position position;
     protected PieceColor color;
+    protected boolean hasMoved; // Pour suivre si la pièce a déjà bougé
 
     public Piece(PieceColor color, Position position){
         this.color = color;
         this.position = position;
+        this.hasMoved = false;
     }
 
     public PieceColor getColor(){
@@ -22,6 +24,13 @@ public abstract class Piece {
         this.position = position;
     }
 
-    public abstract boolean isValidMove(Position newPosition, Piece[][] board);
+    public boolean hasMoved() {
+        return hasMoved;
+    }
 
+    public void setMoved() {
+        this.hasMoved = true;
+    }
+
+    public abstract boolean isValidMove(Position newPosition, Piece[][] board);
 }

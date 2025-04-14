@@ -55,12 +55,76 @@ public class ChessBoard {
     }
 
     public void movePiece(Position start, Position end) {
-        if (board[start.getRow()][start.getColumn()] != null &&
-                board[start.getRow()][start.getColumn()].isValidMove(end, board)) {
+        Piece movingPiece = board[start.getRow()][start.getColumn()];
 
-            board[end.getRow()][end.getColumn()] = board[start.getRow()][start.getColumn()];
-            board[end.getRow()][end.getColumn()].setPosition(end);
+        if (movingPiece != null) {
+            // Gestion spéciale pour le roque
+            if (movingPiece instanceof King && ((King) movingPiece).isCastling(end)) {
+                King king = (King) movingPiece;
+                Position rookSource = king.getRookCastlingSource(end);  // Modifié pour passer la destination du roi
+                Position rookDest = king.getRookCastlingDestination(end);
+
+                // Déplacer la tour
+                Piece rook = board[rookSource.getRow()][rookSource.getColumn()];
+                board[rookDest.getRow()][rookDest.getColumn()] = rook;
+                rook.setPosition(rookDest);
+                rook.setMoved();
+                board[rookSource.getRow()][rookSource.getColumn()] = null;
+            }
+
+            // Gestion spéciale pour l'en passant
+            if (movingPiece instanceof Pawn) {
+                Pawn pawn = (Pawn) movingPiece;
+
+                // Vérifier s'il s'agit d'un double mouvement de pion
+                int rowDiff = Math.abs(end.getRow() - start.getRow());
+                if (rowDiff == 2) {
+                    pawn.setJustMadeDoubleMove(true);
+                } else {
+                    pawn.setJustMadeDoubleMove(false);
+                }
+
+                // Si c'est un mouvement en passant, capturer le pion opposé
+                if (pawn.isEnPassantMove(end, board)) {
+                    // Supprimer le pion capturé en passant
+                    board[start.getRow()][end.getColumn()] = null;
+                }
+            }
+
+            // Déplacer la pièce
+            board[end.getRow()][end.getColumn()] = movingPiece;
+            movingPiece.setPosition(end);
+            movingPiece.setMoved();
             board[start.getRow()][start.getColumn()] = null;
+        }
+    }
+
+    public void promotePawn(Position pawnPosition, String promotionType) {
+        Piece pawn = board[pawnPosition.getRow()][pawnPosition.getColumn()];
+        if (!(pawn instanceof Pawn)) {
+            return;
+        }
+
+        PieceColor color = pawn.getColor();
+        Piece newPiece = null;
+
+        switch(promotionType) {
+            case "Queen":
+                newPiece = new Queen(color, pawnPosition);
+                break;
+            case "Rook":
+                newPiece = new Rook(color, pawnPosition);
+                break;
+            case "Bishop":
+                newPiece = new Bishop(color, pawnPosition);
+                break;
+            case "Knight":
+                newPiece = new Knight(color, pawnPosition);
+                break;
+        }
+
+        if (newPiece != null) {
+            board[pawnPosition.getRow()][pawnPosition.getColumn()] = newPiece;
         }
     }
 }
